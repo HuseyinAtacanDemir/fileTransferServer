@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS {}.users (
+    id INT(12) NOT NULL auto_increment PRIMARY KEY,
+    email VARCHAR(30) NOT NULL UNIQUE,
+    pass CHAR(64) NOT NULL
+)
