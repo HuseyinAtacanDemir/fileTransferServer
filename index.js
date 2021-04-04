@@ -10,6 +10,8 @@ const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
 const db = require('./database/mysql')
 
+const mime = require('mime-types')
+
 const cron = require('node-cron');
 const { resolve } = require('path');
 
@@ -59,24 +61,27 @@ const deleteExpiredFiles = async () => {
     const fileDeletionRequests = fileLinks.map(({ id, file_path, jwt, email_from, email_to, created_at }) => (
         new Promise((resolve, reject) => {
             const file = getFile(jwt)
-            if (!file) {deleteFile(file_path).then(data => {
-                resolve(console.log(`deleted file: ${" id: "+ id +" file: "+ file_path +" from: "+ email_from +" to: "+ email_to +" created: "+ created_at}`))
-            })}else{
+            if (!file) {
+                deleteFile(file_path).then(data => {
+                    resolve(console.log(`deleted file: ${" id: " + id + " file: " + file_path + " from: " + email_from + " to: " + email_to + " created: " + created_at}`))
+                })
+            } else {
                 reject(`${file.fileName} still active`)
             }
 
-            
+
         }).catch(err => {
             console.log(err)
         })
     ))
     Promise.all(fileDeletionRequests).then((data) => { console.log(`${data} Files in expired paths are deleted at ${date.toISOString()}`) })
 }
-cron.schedule('*/1 * * * *', () => {
-    console.log('starting deleting inactive files')
-    deleteExpiredFiles()
-    console.log('deleting files')
-})
+// cron.schedule('* */1 * * *', () => {
+//     console.log('starting deleting inactive files')
+//     deleteExpiredFiles()
+//     console.log('deleting files')
+// })
+
 const createFileRoute = (fileName, expiry) => {
     const token = jwt.sign(
         { fileName },
@@ -86,25 +91,87 @@ const createFileRoute = (fileName, expiry) => {
     return token
 }
 
+// app.get('/register', (req, res) => {
+//     // let token = jwt.sign(
+//     //     { count: 0 },
+//     //     process.env.JWT_SECRET,
+//     //     { expiresIn: '5m'}
+//     // )
+//     // <input type='hidden' name='jwt' value='${token}'/>
+//     res.send(`<html><body><form action='http://localhost:4000/register' method='post' ><label for='email'>Email</label><input type='email' name='email'/><label for='password'>Password</label><input type='password' name='password' /><input type='submit' value='Login' /></form></body></html>`)
+// })
+
+// app.post('/register', async (req, res) => {
+//     if(req.body.email && req.body.password){
+//         try {
+//             //const err = Validate(email, password);
+//             //console.log("validation err: ", err)
+//             //if (err) throw new Error(err)
+
+//             const email = req.body.email;
+//             const password = req.body.password;
+
+
+//             const newUser = await db('users').insert({ email: email, pass: await bcrypt.hash(password, 10) })
+
+//             const token = jwt.sign(
+//                 { id: newUser.id, email: newUser.email },
+//                 process.env.JWT_SECRET,
+//                 { expiresIn: '30m' }
+//             )
+
+
+//                 res.json([{token: `Bearer ${token}`}])
+
+//         } catch (error) {
+//             if (error.message.includes("Duplicate entry")) {
+//                 error.message = "A user with that email already exists"
+//             }
+//             res.json([{error: error.message}])
+//         }
+
+//     }else{
+//         res.json([{error: 'please enter all fields'}])
+//     }
+// })
+
+
+
+app.get('/login', (req, res) => {
+    // let token = jwt.sign(
+    //     { count: 0 },
+    //     process.env.JWT_SECRET,
+    //     { expiresIn: '5m'}
+    // )
+    // <input type='hidden' name='jwt' value='${token}'/>
+    res.send(`<html><body><form action='http://localhost:4000/login' method='post' ><label for='email'>Email</label><input type='email' name='email'/><label for='password'>Password</label><input type='password' name='password' /><input type='submit' value='Login' /></form></body></html>`)
+})
 
 app.post('/login', async (req, res) => {
-    const user = await db.select('*').from('users').where('email', '=', req.email)
+    console.log(req.body)
+
+    if (!req.body.email) return
+
+    console.log("here")
+
+    const user = await db.select('*').from('users').where('email', '=', req.body.email).catch(err => console.log(err))
     if (!user[0]) {
         res.json([{ error: 'No such user' }])
-        throw new Error("User with that email does not exist")
+        return
     }
 
-    const isValid = await bcrypt.compare(req.password, user[0].pass)
+    const isValid = await bcrypt.compare(req.body.password, user[0].pass)
     if (!isValid) {
         res.json([{ error: 'Incorrect password' }])
-        throw new Error('Incorrect Password')
+        return
     }
 
-    const token = jsonwebtoken.sign(
+    const token = jwt.sign(
         { id: user[0].id, email: user[0].email },
         process.env.JWT_SECRET,
         { expiresIn: '30m' }
     )
+    console.log('here2')
     res.json([{
         token: `Bearer ${token}`
     }])
@@ -112,11 +179,19 @@ app.post('/login', async (req, res) => {
 })
 
 app.get('/dashboard', async (req, res) => {
-    //const { id, email } = jsonwebtoken.verify(req.headers.Authorization.replace('Bearer ', ''));
-    const id = 1
-    const email = 1
+    //console.log(req.headers)
+    if (!req.headers.authorization) {
+
+        res.json([{ error: 'You are not logged in' }])
+        return
+    }
+    console.log(req.headers.authorization)
+    const { id, email } = jwt.verify(req.headers.authorization.replace('Bearer ', ''), process.env.JWT_SECRET);
+    // const id = 1
+    // const email = 1
     if (id && email) {
         const fileData = await db.select('*').from('file_links').catch(err => { throw new Error(err) })
+        console.log(fileData)
         res.json(fileData)
     } else {
         res.json([{ error: 'Please sign in' }])
@@ -179,12 +254,17 @@ app.post('/upload', (req, res) => {
 
 })
 
-app.get('/delete/:jwt',  (req, res) => {
+app.get('/delete/:jwt', (req, res) => {
+    // const { id, email } = jsonwebtoken.verify(req.headers.Authorization.replace('Bearer ', ''));
+
+
     try {
+        // if (!id || !email)
+        //     throw new Error('You are not authenticated')
         const { fileName } = getFile(req.params.jwt);
         console.log(fileName)
         if (fileName) {
-             deleteFile(fileName)
+            deleteFile(fileName)
                 .then(msg => {
                     console.log(msg)
                     res.send(`${fileName} deleted succesfully`)
@@ -210,6 +290,9 @@ app.get('/download/:jwt', (req, res) => {
         const { fileName, route } = getFile(req.params.jwt);
         console.log(fileName)
         if (fileName && !route) {
+            res.setHeader('Content-Disposition', 'attachment; filename=' + fileName);
+            res.setHeader('Content-Type', `${mime.lookup(path.join(__dirname, 'files', fileName))}`);
+            res.attachment(path.join(__dirname, 'files', fileName))
             res.sendFile(path.join(__dirname, 'files', fileName))
         } else if (route && !fileName) {
             res.send('hello')
