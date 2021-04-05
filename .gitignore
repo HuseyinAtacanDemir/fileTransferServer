@@ -5,3 +5,10 @@
 .env
 
 files/*
+
+*.png
+*.jpg
+*.numbers
+*.docx
+*.xlsx
+*.pdf
