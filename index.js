@@ -2,6 +2,7 @@ require('dotenv').config()
 
 const express = require('express')
 const fileUpload = require('express-fileupload')
+const contentDisposition = require('content-disposition')
 const cors = require('cors');
 
 const path = require('path')
@@ -76,11 +77,11 @@ const deleteExpiredFiles = async () => {
     ))
     Promise.all(fileDeletionRequests).then((data) => { console.log(`${data} Files in expired paths are deleted at ${date.toISOString()}`) })
 }
-// cron.schedule('* */1 * * *', () => {
-//     console.log('starting deleting inactive files')
-//     deleteExpiredFiles()
-//     console.log('deleting files')
-// })
+cron.schedule('*/1 * * * *', () => {
+    console.log('starting deleting inactive files')
+    deleteExpiredFiles()
+    console.log('deleting files')
+})
 
 const createFileRoute = (fileName, expiry) => {
     const token = jwt.sign(
@@ -186,14 +187,19 @@ app.get('/dashboard', async (req, res) => {
         return
     }
     console.log(req.headers.authorization)
-    const { id, email } = jwt.verify(req.headers.authorization.replace('Bearer ', ''), process.env.JWT_SECRET);
-    // const id = 1
-    // const email = 1
-    if (id && email) {
-        const fileData = await db.select('*').from('file_links').catch(err => { throw new Error(err) })
-        console.log(fileData)
-        res.json(fileData)
-    } else {
+
+    try {
+        const { id, email } = jwt.verify(req.headers.authorization.replace('Bearer ', ''), process.env.JWT_SECRET);
+        if (id && email) {
+            const fileData = await db.select('*').from('file_links').catch(err => { throw new Error(err) })
+            console.log(fileData)
+            res.json(fileData)
+        } else {
+            throw new Error('Please sign in')
+        }
+
+    } catch (err) {
+        console.log(err)
         res.json([{ error: 'Please sign in' }])
     }
 
@@ -209,6 +215,9 @@ app.post('/upload', (req, res) => {
 
     // if (!id || !email)
     //     throw new Error('You are not authenticated')
+    console.log(req.headers)
+    console.log(req.body)
+    console.log(req.files)
     try {
         let sampleFile;
         let uploadPath;
@@ -216,9 +225,10 @@ app.post('/upload', (req, res) => {
         if (!req.files || Object.keys(req.files).length === 0) {
             return res.status(400).send('No files were uploaded.');
         }
-
-        // The name of the input field (i.e. "sampleFile") is used to retrieve the uploaded file
         sampleFile = req.files.file;
+        const fileRouteToken = createFileRoute(sampleFile.name, `${req.body.expiration}h`)
+
+
         uploadPath = __dirname + '/files/' + sampleFile.name;
 
         // Use the mv() method to place the file somewhere on your server
@@ -226,12 +236,14 @@ app.post('/upload', (req, res) => {
             if (err)
                 return res.status(500).send(err);
 
-            const fileRouteToken = createFileRoute(sampleFile.name, req.body.expiry)
+            
+
 
             db('file_links')
                 .insert(
                     {
                         file_path: sampleFile.name,
+                        expiration: req.body.expiration,
                         jwt: fileRouteToken,
                         email_from: req.body.email_from,
                         email_to: req.body.email_to
@@ -242,14 +254,19 @@ app.post('/upload', (req, res) => {
                         fileRoute: fileRouteToken
                     }]);
                 })
-                .catch(err => { throw new Error(err) })
+                .catch(err => { if(err.includes('Duplicate')){
+                    res.json([{
+                        error: `${sampleFile.name} already exists in database, if it is not the same file, please rename the file and try again`
+                    }])
+                    return
+                } })
 
         });
 
 
 
     } catch (error) {
-        throw new Error(err.message)
+        res.json([{error: error.message}])
     }
 
 })
@@ -267,7 +284,7 @@ app.get('/delete/:jwt', (req, res) => {
             deleteFile(fileName)
                 .then(msg => {
                     console.log(msg)
-                    res.send(`${fileName} deleted succesfully`)
+                    res.json([{ message: `${fileName} deleted succesfully` }])
                 })
                 .catch(err => {
                     console.log(err)
@@ -288,9 +305,9 @@ app.get('/download/:jwt', (req, res) => {
     //console.log(req)
     try {
         const { fileName, route } = getFile(req.params.jwt);
-        console.log(fileName)
+        
         if (fileName && !route) {
-            res.setHeader('Content-Disposition', 'attachment; filename=' + fileName);
+            res.setHeader('Content-Disposition', contentDisposition(fileName));
             res.setHeader('Content-Type', `${mime.lookup(path.join(__dirname, 'files', fileName))}`);
             res.attachment(path.join(__dirname, 'files', fileName))
             res.sendFile(path.join(__dirname, 'files', fileName))
@@ -303,6 +320,7 @@ app.get('/download/:jwt', (req, res) => {
         }
 
     } catch (error) {
+        console.log(error)
 
         res.json([{
             anan: "anan"
