@@ -236,7 +236,7 @@ app.post('/upload', (req, res) => {
             if (err)
                 return res.status(500).send(err);
 
-            
+
 
 
             db('file_links')
@@ -254,19 +254,21 @@ app.post('/upload', (req, res) => {
                         fileRoute: fileRouteToken
                     }]);
                 })
-                .catch(err => { if(err.includes('Duplicate')){
-                    res.json([{
-                        error: `${sampleFile.name} already exists in database, if it is not the same file, please rename the file and try again`
-                    }])
-                    return
-                } })
+                .catch(err => {
+                    if (err.includes('Duplicate')) {
+                        res.json([{
+                            error: `${sampleFile.name} already exists in database, if it is not the same file, please rename the file and try again`
+                        }])
+                        return
+                    }
+                })
 
         });
 
 
 
     } catch (error) {
-        res.json([{error: error.message}])
+        res.json([{ error: error.message }])
     }
 
 })
@@ -297,7 +299,7 @@ app.get('/delete/:jwt', (req, res) => {
     } catch (error) {
 
         res.json([{
-            anan: "anan"
+            error: "no such file"
         }])
     }
 })
@@ -305,7 +307,7 @@ app.get('/download/:jwt', (req, res) => {
     //console.log(req)
     try {
         const { fileName, route } = getFile(req.params.jwt);
-        
+
         if (fileName && !route) {
             res.setHeader('Content-Disposition', contentDisposition(fileName));
             res.setHeader('Content-Type', `${mime.lookup(path.join(__dirname, 'files', fileName))}`);
@@ -323,7 +325,7 @@ app.get('/download/:jwt', (req, res) => {
         console.log(error)
 
         res.json([{
-            anan: "anan"
+            error: "no such file"
         }])
     }
 
